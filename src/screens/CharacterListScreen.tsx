@@ -1,93 +1,165 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
-import CharacterCard from '../component/CharacterCard';
-import { Character } from '../types/api.types';
-import { getCharacters } from '../services/character.service';
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  ActivityIndicator,
+  StyleSheet,
+  FlatList,
+  Image,
+} from "react-native";
+import { Character } from "../types/api.types";
+import { getCharacters, searchCharacters } from "../services/character.service"; // Utilise le service qui prend la page
+import CharacterCard from "../component/CharacterCard";
+import SearchBar from "../component/SearchBar";
 
-const CharacterListScreen = () => {
-    const [characters, setCharacters] = useState<Character[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+const CharacterListScreen: React.FC = () => {
+  const [characters, setCharacters] = useState<Character[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [search, setSearch] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                setLoading(true);
-                const response = await getCharacters(1);
-                // On prend les 10 premiers pour le test de navigation
-                setCharacters(response.data.slice(0, 10));
-            } catch (err) {
-                console.error('Error fetching characters:', err);
-                setError('Erreur lors de la récupération des personnages.');
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchData();
-    }, []);
-
-    if (loading) {
-        return (
-            <View style={styles.center}>
-                <ActivityIndicator size="large" color="#004a99" />
-                <Text style={styles.loadingText}>Chargement des personnages depuis l'API...</Text>
-            </View>
-        );
+  useEffect(() => {
+    if (search.trim() === "") {
+      fetchCharacters(1, true);
+    } else {
+      handleSearch(search);
     }
+  }, [search]);
 
-    if (error) {
-        return (
-            <View style={styles.center}>
-                <Text style={styles.errorText}>{error}</Text>
-            </View>
-        );
+  const fetchCharacters = async (pageToFetch: number, initial = false) => {
+    try {
+      if (initial) setIsLoading(true);
+      else setIsFetchingMore(true);
+      setError(null);
+      const response = await getCharacters(pageToFetch);
+      if (response.data) {
+        if (initial) {
+          setCharacters(response.data);
+        } else {
+          setCharacters((prev) => [...prev, ...response.data]);
+        }
+        setHasMore(response.data.length === 50);
+      } else {
+        setError("Impossible de récupérer les données.");
+      }
+    } catch (err: any) {
+      setError("Erreur lors du chargement des personnages.");
+    } finally {
+      setIsLoading(false);
+      setIsFetchingMore(false);
     }
+  };
+  const handleSearch = async (query: string) => {
+    setIsSearching(true);
+    setIsLoading(true);
+    setError(null);
+    setPage(1);
+    setCharacters([]); // Vide la liste
+    try {
+      const response = await searchCharacters(query);
+      setCharacters(response.data);
+      setHasMore(false); // Désactive le scroll infini en mode recherche
+    } catch (err) {
+      setError("Erreur lors de la recherche.");
+    } finally {
+      setIsLoading(false);
+      setIsSearching(false);
+    }
+  };
 
+  const handleEndReached = () => {
+    if (!isFetchingMore && hasMore) {
+      const nextPage = page + 1;
+      setPage(nextPage);
+      fetchCharacters(nextPage);
+    }
+  };
+
+  if (isLoading) {
     return (
-        <View style={styles.container}>
-            <Text style={styles.title}>Disney Explorer - Mode API</Text>
-            <FlatList
-                data={characters}
-                keyExtractor={(item) => item._id.toString()}
-                renderItem={({ item }) => <CharacterCard item={item} />}
-                contentContainerStyle={styles.list}
-            />
-        </View>
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#0000ff" />
+      </View>
     );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.error}>{error}</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.container}>
+      <SearchBar onSearch={setSearch} />
+      {isLoading ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#0000ff" />
+        </View>
+      ) : error ? (
+        <View style={styles.center}>
+          <Text style={styles.error}>{error}</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={characters}
+          keyExtractor={(item) => item._id.toString()}
+          renderItem={({ item }) => <CharacterCard item={item} />}
+          onEndReached={search ? undefined : handleEndReached}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={
+            isFetchingMore ? (
+              <ActivityIndicator size="small" color="#0000ff" />
+            ) : null
+          }
+        />
+      )}
+    </View>
+  );
 };
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#f5f7fa',
-        paddingTop: 10,
-    },
-    center: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: '#fff',
-    },
-    title: {
-        fontSize: 22,
-        fontWeight: '900',
-        textAlign: 'center',
-        marginVertical: 15,
-        color: '#004a99',
-        letterSpacing: 1,
-    },
-    list: {
-        paddingBottom: 20,
-    },
-    loadingText: {
-        marginTop: 10,
-        color: '#666',
-    },
-    errorText: {
-        color: 'red',
-        fontSize: 16,
-    },
+  container: {
+    flex: 1,
+    backgroundColor: "#fff",
+    padding: 16,
+  },
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  error: {
+    textAlign: "center",
+    color: "red",
+  },
+  item: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  name: {
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  label: {
+    fontWeight: "bold",
+    marginTop: 8,
+  },
+  value: {
+    marginLeft: 8,
+  },
+  image: {
+    width: 100,
+    height: 100,
+    marginVertical: 8,
+    borderRadius: 8,
+  },
 });
 
 export default CharacterListScreen;
